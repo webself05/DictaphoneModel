@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dictaphone Interface</title>
+    <!-- Перенести в отдельный CSS -->
     <style>
+        /* Стили остаются без изменений */
         * {
             margin: 0;
             padding: 0;
@@ -13,7 +15,7 @@
         }
         
         body {
-            background: linear-gradient(135deg, #1a2a6c, #2c3e50);
+            background: linear-gradient(135deg, #696969, #2c3e50);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -131,7 +133,7 @@
         }
         
         .btn {
-            background: linear-gradient(45deg, #6a11cb, #2575fc);
+            background: linear-gradient(45deg, #696969, #3f6081);
             color: white;
             border: none;
             border-radius: 50px;
@@ -161,7 +163,7 @@
         }
         
         .btn-play {
-            background: linear-gradient(45deg, #00c853, #00e676);
+            background: linear-gradient(45deg, #c88900, #e6cf00);
         }
         
         .btn-delete {
@@ -169,7 +171,7 @@
         }
         
         .btn-refresh {
-            background: linear-gradient(45deg, #4361ee, #3a0ca3);
+            background: linear-gradient(45deg, #253037);
         }
         
         .btn:disabled {
@@ -383,8 +385,8 @@
                     <button class="btn btn-record" id="recordBtn">
                         <span>Начать запись</span>
                     </button>
-                    <button class="btn btn-play" id="stopBtn" disabled>
-                        <span>Остановить</span>
+                    <button class="btn btn-play" id="pauseBtn" disabled>
+                        <span>Пауза</span>
                     </button>
                 </div>
             </div>
@@ -408,11 +410,12 @@
         </div>
     </div>
 
+    <!-- Перенести в отдельный файл JS -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // DOM elements
             const recordBtn = document.getElementById('recordBtn');
-            const stopBtn = document.getElementById('stopBtn');
+            const pauseBtn = document.getElementById('pauseBtn'); // Изменено с stopBtn на pauseBtn
             const refreshBtn = document.getElementById('refreshBtn');
             const statusIndicator = document.getElementById('statusIndicator');
             const statusText = document.getElementById('statusText');
@@ -425,6 +428,7 @@
             
             // State variables
             let isRecording = false;
+            let isPaused = false; // Новое состояние для паузы
             let isPlaying = false;
             let currentPlaybackId = null;
             let currentPlaybackAudio = null;
@@ -446,14 +450,14 @@
             const animateWaveform = () => {
                 const bars = waveform.children;
                 for (let i = 0; i < bars.length; i++) {
-                    if (isRecording) {
+                    if (isRecording && !isPaused) {
                         bars[i].style.height = `${Math.random() * 80 + 20}%`;
                     } else {
                         bars[i].style.height = `${Math.random() * 20 + 10}%`;
                     }
                 }
                 requestAnimationFrame(() => {
-                    if (isRecording || waveform.classList.contains('recording')) {
+                    if (isRecording && !isPaused || waveform.classList.contains('recording')) {
                         animateWaveform();
                     }
                 });
@@ -496,6 +500,33 @@
                     } catch (error) {
                         console.error('Error stopping recording:', error);
                         return 'Ошибка при остановке записи';
+                    }
+                },
+                
+                // Новые методы для паузы и продолжения
+                async pauseRecording() {
+                    try {
+                        const response = await fetch(`${API_BASE}/record/pause`, {
+                            method: 'POST'
+                        });
+                        const data = await response.json();
+                        return data.status;
+                    } catch (error) {
+                        console.error('Error pausing recording:', error);
+                        return 'Ошибка при паузе записи';
+                    }
+                },
+                
+                async resumeRecording() {
+                    try {
+                        const response = await fetch(`${API_BASE}/record/resume`, {
+                            method: 'POST'
+                        });
+                        const data = await response.json();
+                        return data.status;
+                    } catch (error) {
+                        console.error('Error resuming recording:', error);
+                        return 'Ошибка при продолжении записи';
                     }
                 },
                 
@@ -581,6 +612,13 @@
                 animateWaveform();
             };
             
+            const showPausedStatus = () => {
+                statusText.textContent = 'Запись на паузе';
+                statusText.className = 'status-text status-warning';
+                statusIndicator.className = 'status-indicator';
+                waveform.classList.remove('recording');
+            };
+            
             const updatePowerSavingMode = (isLowBattery) => {
                 isPowerSavingMode = isLowBattery;
                 powerSavingMode.style.display = isLowBattery ? 'block' : 'none';
@@ -660,8 +698,10 @@
                 const result = await api.startRecording();
                 if (result.includes('началась')) {
                     isRecording = true;
+                    isPaused = false; // Сбрасываем паузу при старте
                     recordBtn.textContent = 'Остановить запись';
-                    stopBtn.disabled = false;
+                    pauseBtn.disabled = false;
+                    pauseBtn.textContent = 'Пауза'; // Устанавливаем текст кнопки
                     recordBtn.classList.add('btn-delete');
                     recordBtn.classList.remove('btn-record');
                     showRecordingStatus();
@@ -676,8 +716,9 @@
                 const result = await api.stopRecording();
                 if (result.includes('сохранена') || result.includes('завершена')) {
                     isRecording = false;
+                    isPaused = false; // Сбрасываем паузу
                     recordBtn.textContent = 'Начать запись';
-                    stopBtn.disabled = true;
+                    pauseBtn.disabled = true;
                     recordBtn.classList.add('btn-record');
                     recordBtn.classList.remove('btn-delete');
                     statusText.textContent = 'Запись остановлена';
@@ -687,6 +728,23 @@
                     setTimeout(loadMessages, 500);
                 } else {
                     showError(result);
+                }
+            };
+            
+            // Новая функция для управления паузой
+            const pauseResumeRecording = () => {
+                if (!isRecording) return;
+    
+                 if (isPaused) {
+                 // Продолжаем запись
+                    isPaused = false;
+                    pauseBtn.textContent = 'Пауза';
+                    showRecordingStatus();
+                } else {
+                    // Ставим на паузу
+                    isPaused = true;
+                    pauseBtn.textContent = 'Продолжить';
+                    showPausedStatus();
                 }
             };
             
@@ -786,7 +844,8 @@
                 }
             });
             
-            stopBtn.addEventListener('click', stopRecording);
+            // Изменено: stopBtn -> pauseBtn
+            pauseBtn.addEventListener('click', pauseResumeRecording);
             
             refreshBtn.addEventListener('click', () => {
                 loadMessages();
